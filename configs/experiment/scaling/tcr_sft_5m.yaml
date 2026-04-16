@@ -1,0 +1,89 @@
+# @package _global_
+
+# TCR SFT experiment: conditional epitope -> TCR generation
+# Fine-tunes pretrained 5M DPLM on epitope-TCR pairs
+# Usage (via pipeline): python train.py experiment=scaling/tcr_sft_5m
+#   model.net.sft_from_checkpoint=<absolute_path_to_best_ckpt> logger=wandb
+# NOTE: sft_from_checkpoint is injected by run_scaling_pipeline.py at runtime
+
+defaults:
+  - /datamodule: tcr_sft
+  - /callbacks: lm
+  - /trainer: ddp_bf16
+
+project: "TCR_Scaling"
+name: "tcr_sft_5m"
+
+datamodule:
+  max_tokens: 4096
+  max_len: 64
+  num_workers: 4
+
+model:
+  _target_: dplm
+  num_diffusion_timesteps: 500
+  gradient_ckpt: false
+  rdm_couple: false
+  lora:
+    enable: false
+  net:
+    arch_type: esm
+    name: null
+    hidden_size: 256
+    num_hidden_layers: 6
+    num_attention_heads: 8
+    intermediate_size: 1024
+    vocab_size: 34  # 33 original + 1 <sep> token
+    max_position_embeddings: 1026
+    dropout: 0.1
+    pretrain: false
+    sft_from_checkpoint: null  # overridden by run_scaling_pipeline.py at runtime
+
+task:
+  _target_: lm/dplm
+  learning:
+    noise: random_mask
+    watch_t1_t2_loss: false
+    cal_constant_loss: false
+    weight: linear
+  criterion:
+    _target_: byprot.modules.cross_entropy.RDMCrossEntropyLoss
+    label_smoothing: 0.0
+    ignore_index: 1
+  optimizer:
+    type: adamw
+    _partial_: true
+    lr: ${train.lr}
+    betas:
+      - 0.9
+      - 0.98
+    weight_decay: 0.01
+  lr_scheduler:
+    type: polynomial
+    warmup_steps: 500
+    total_steps: ${trainer.max_steps}
+    lr: ${train.lr}
+    lr_end: 1e-6
+    warmup_init_lr: 1e-07
+    power: 1
+
+train:
+  seed: 42
+  lr: 0.00002  # ~1/3 of pretrain lr (5e-5) -> ~1.7e-5, rounded to 2e-5
+  monitor: "val/loss"
+  mode: "min"
+  patience: 1000
+
+trainer:
+  min_epochs: 1
+  max_epochs: 10000
+  gradient_clip_val: 0.0
+  num_sanity_val_steps: 0
+  reload_dataloaders_every_n_epochs: 1
+  use_distributed_sampler: false
+  max_steps: 20000
+  accumulate_grad_batches: 1
+  check_val_every_n_epoch: null
+  val_check_interval: 500
+  enable_progress_bar: false
+  num_nodes: 1

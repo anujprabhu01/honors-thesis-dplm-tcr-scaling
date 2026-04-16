@@ -1,0 +1,6 @@
+_target_: tcr_conditional
+
+data_dir: ${paths.data_dir}/tcr_sft
+max_tokens: 4096
+max_len: 64
+num_workers: 4

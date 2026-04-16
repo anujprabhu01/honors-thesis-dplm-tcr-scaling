@@ -1,0 +1,87 @@
+# @package _global_
+
+# TCR SFT experiment: ~0.1M parameters, pretrained on 2M dataset
+# Fine-tunes pretrained DPLM on epitope-TCR pairs
+# NOTE: sft_from_checkpoint is injected by run_scaling_pipeline.py at runtime
+
+defaults:
+  - /datamodule: tcr_sft
+  - /callbacks: lm
+  - /trainer: ddp_bf16
+
+project: "TCR_Scaling"
+name: "tcr_sft_0.1m_2m"
+
+datamodule:
+  max_tokens: 4096
+  max_len: 64
+  num_workers: 4
+
+model:
+  _target_: dplm
+  num_diffusion_timesteps: 500
+  gradient_ckpt: false
+  rdm_couple: false
+  lora:
+    enable: false
+  net:
+    arch_type: esm
+    name: null
+    hidden_size: 48
+    num_hidden_layers: 2
+    num_attention_heads: 4
+    intermediate_size: 192
+    vocab_size: 34
+    max_position_embeddings: 1026
+    dropout: 0.1
+    pretrain: false
+    sft_from_checkpoint: null  # injected by run_scaling_pipeline.py at runtime
+
+task:
+  _target_: lm/dplm
+  learning:
+    noise: random_mask
+    watch_t1_t2_loss: false
+    cal_constant_loss: false
+    weight: linear
+  criterion:
+    _target_: byprot.modules.cross_entropy.RDMCrossEntropyLoss
+    label_smoothing: 0.0
+    ignore_index: 1
+  optimizer:
+    type: adamw
+    _partial_: true
+    lr: ${train.lr}
+    betas:
+      - 0.9
+      - 0.98
+    weight_decay: 0.01
+  lr_scheduler:
+    type: polynomial
+    warmup_steps: 500
+    total_steps: ${trainer.max_steps}
+    lr: ${train.lr}
+    lr_end: 1e-6
+    warmup_init_lr: 1e-07
+    power: 1
+
+train:
+  seed: 42
+  lr: 0.0001
+  monitor: "val/loss"
+  mode: "min"
+  patience: 1000
+
+trainer:
+  min_epochs: 1
+  max_epochs: 10000
+  gradient_clip_val: 0.0
+  num_sanity_val_steps: 0
+  reload_dataloaders_every_n_epochs: 1
+  use_distributed_sampler: false
+  max_steps: 20000
+  accumulate_grad_batches: 1
+  check_val_every_n_epoch: null
+  val_check_interval: 500
+  enable_progress_bar: false
+  num_nodes: 1

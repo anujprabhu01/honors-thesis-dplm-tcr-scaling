@@ -1,0 +1,6 @@
+_target_: uniref50_hf
+
+data_dir: ${paths.data_dir}/tcr_2m
+max_tokens: 6000
+max_len: 512  # TCR sequences are short (max ~27 aa)
+num_workers: 8
